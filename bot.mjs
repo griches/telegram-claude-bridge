@@ -73,14 +73,22 @@ const MCP_SERVERS = {
 
 const SYSTEM_PROMPT = `You are ${USER_NAME}'s personal assistant, accessible via Telegram.
 You have access to Apple MCP tools for: Notes, Messages, Contacts, Reminders, Calendar, Maps, and Mail.
+
 Key info about ${USER_NAME}:
 ${USER_PHONE ? `- Phone: ${USER_PHONE}` : ""}
 ${USER_EMAIL ? `- Email: ${USER_EMAIL}` : ""}
 Today's date: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.
-Keep responses concise — this is a chat message, not an essay.`;
+
+IMPORTANT rules:
+- When querying calendar events by date range, use list_all_events to get events from all calendars in one call. Only use search_events when searching by event name/title.
+- When you need to message ${USER_NAME}, use phone number ${USER_PHONE} (not email).
+- Keep responses concise — this is a chat message, not an essay. No emojis.`;
 
 let offset = 0;
 let processing = false;
+let sessionId = undefined;
+let messageCount = 0;
+const SESSION_RESET_AFTER = 10; // Reset session every N messages to prevent context bloat
 
 async function telegram(method, body) {
   const res = await fetch(`${API}/${method}`, {
@@ -104,25 +112,80 @@ async function runClaude(prompt) {
   let result = "";
   const start = Date.now();
 
-  for await (const message of query({
-    prompt,
-    options: {
-      model: "claude-sonnet-4-6",
-      systemPrompt: SYSTEM_PROMPT,
-      mcpServers: MCP_SERVERS,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      cwd: APPLE_MCP_DIR,
-      maxTurns: 10,
-    },
-  })) {
+  // Reset session periodically to prevent context bloat
+  if (messageCount >= SESSION_RESET_AFTER) {
+    console.log("  Resetting session (context limit reached)");
+    sessionId = undefined;
+    messageCount = 0;
+  }
+
+  const options = {
+    model: process.env.MODEL || "claude-sonnet-4-6",
+    systemPrompt: SYSTEM_PROMPT,
+    mcpServers: MCP_SERVERS,
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    cwd: APPLE_MCP_DIR,
+    maxTurns: 10,
+    settingSources: [], // Don't load global settings/plugins — only use our MCP servers
+  };
+
+  // Resume existing session to keep MCP servers warm
+  if (sessionId) {
+    options.resume = sessionId;
+  }
+
+  const elapsed = () => `+${((Date.now() - start) / 1000).toFixed(1)}s`;
+
+  for await (const message of query({ prompt, options })) {
+    // Session init — MCP servers starting
+    if (message.type === "system" && message.subtype === "init") {
+      sessionId = message.session_id;
+      const mcpStatus = message.mcp_servers
+        ? Object.entries(message.mcp_servers)
+            .map(([name, s]) => `${name}:${s.status || "?"}`)
+            .join(", ")
+        : "n/a";
+      console.log(
+        `  [${elapsed()}] Session ${sessionId.slice(0, 8)}... ${options.resume ? "(resumed)" : "(new)"}`
+      );
+      console.log(`  [${elapsed()}] MCP: ${mcpStatus}`);
+    }
+
+    // Assistant thinking / responding
+    if (message.type === "assistant") {
+      const content = message.message?.content || [];
+      for (const block of content) {
+        if (block.type === "tool_use") {
+          console.log(`  [${elapsed()}] Tool call: ${block.name}(${JSON.stringify(block.input).slice(0, 80)}...)`);
+        } else if (block.type === "text" && block.text) {
+          console.log(`  [${elapsed()}] Assistant text: ${block.text.slice(0, 100)}...`);
+        }
+      }
+    }
+
+    // Tool results coming back
+    if (message.type === "user") {
+      const content = message.message?.content || [];
+      for (const block of content) {
+        if (block.type === "tool_result") {
+          const preview = typeof block.content === "string"
+            ? block.content.slice(0, 80)
+            : JSON.stringify(block.content).slice(0, 80);
+          console.log(`  [${elapsed()}] Tool result: ${preview}...`);
+        }
+      }
+    }
+
+    // Final result
     if (message.type === "result" && message.subtype === "success") {
       result = message.result;
+      messageCount++;
       const cost = message.total_cost_usd
         ? ` | $${message.total_cost_usd.toFixed(4)}`
         : "";
       console.log(
-        `  Done in ${((Date.now() - start) / 1000).toFixed(1)}s${cost}`
+        `  [${elapsed()}] DONE${cost} | msg ${messageCount}/${SESSION_RESET_AFTER}`
       );
     }
 
@@ -183,6 +246,8 @@ async function poll() {
           );
         } catch (err) {
           console.error("Claude error:", err.message);
+          sessionId = undefined;
+          messageCount = 0;
           await sendMessage(
             msg.chat.id,
             `Something went wrong: ${err.message}`
@@ -199,6 +264,6 @@ async function poll() {
 }
 
 console.log("Telegram bridge started — listening for messages...");
-console.log(`Model: claude-sonnet-4-6`);
+console.log(`Model: ${process.env.MODEL || "claude-sonnet-4-6"}`);
 console.log(`MCP servers: ${Object.keys(MCP_SERVERS).join(", ")}`);
 poll();
