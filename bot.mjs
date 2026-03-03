@@ -108,8 +108,9 @@ async function sendMessage(chatId, text) {
   }
 }
 
-async function runClaude(prompt) {
+async function runClaude(prompt, chatId) {
   let result = "";
+  let sentText = false;
   const start = Date.now();
 
   // Reset session periodically to prevent context bloat
@@ -152,7 +153,7 @@ async function runClaude(prompt) {
       console.log(`  [${elapsed()}] MCP: ${mcpStatus}`);
     }
 
-    // Assistant thinking / responding
+    // Assistant thinking / responding — send text to Telegram as it arrives
     if (message.type === "assistant") {
       const content = message.message?.content || [];
       for (const block of content) {
@@ -160,6 +161,10 @@ async function runClaude(prompt) {
           console.log(`  [${elapsed()}] Tool call: ${block.name}(${JSON.stringify(block.input).slice(0, 80)}...)`);
         } else if (block.type === "text" && block.text) {
           console.log(`  [${elapsed()}] Assistant text: ${block.text.slice(0, 100)}...`);
+          if (chatId) {
+            await sendMessage(chatId, block.text);
+            sentText = true;
+          }
         }
       }
     }
@@ -197,7 +202,7 @@ async function runClaude(prompt) {
     }
   }
 
-  return result;
+  return { result, sentText };
 }
 
 async function poll() {
@@ -239,8 +244,10 @@ async function poll() {
         });
 
         try {
-          const response = await runClaude(text);
-          await sendMessage(msg.chat.id, response || "(done, no output)");
+          const { result: response, sentText } = await runClaude(text, msg.chat.id);
+          if (!sentText) {
+            await sendMessage(msg.chat.id, response || "(done, no output)");
+          }
           console.log(
             `[${new Date().toLocaleTimeString()}] Response sent (${response.length} chars)`
           );
