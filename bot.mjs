@@ -238,10 +238,11 @@ async function poll() {
         const text = msg.text.trim();
         console.log(`[${new Date().toLocaleTimeString()}] Received: ${text}`);
 
-        await telegram("sendChatAction", {
-          chat_id: msg.chat.id,
-          action: "typing",
-        });
+        // Keep typing indicator alive every 4s until we're done
+        const typingInterval = setInterval(() => {
+          telegram("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
+        }, 4000);
+        telegram("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
 
         try {
           const { result: response, sentText } = await runClaude(text, msg.chat.id);
@@ -260,6 +261,7 @@ async function poll() {
             `Something went wrong: ${err.message}`
           );
         } finally {
+          clearInterval(typingInterval);
           processing = false;
         }
       }
