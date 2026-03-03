@@ -1,0 +1,13 @@
+{
+  "name": "telegram-bridge",
+  "version": "1.0.0",
+  "description": "Telegram bot bridge to Claude with Apple MCP servers",
+  "main": "bot.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.63"
+  }
+}
