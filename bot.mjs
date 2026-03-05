@@ -43,7 +43,7 @@ const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const MCP_SERVERS = {
   "apple-notes": {
     command: "node",
-    args: [resolve(APPLE_MCP_DIR, "notes/build/index.js")],
+    args: [resolve(APPLE_MCP_DIR, "notes/build/index.js"), "--confirm-destructive"],
   },
   "apple-messages": {
     command: "node",
@@ -51,15 +51,15 @@ const MCP_SERVERS = {
   },
   "apple-contacts": {
     command: "node",
-    args: [resolve(APPLE_MCP_DIR, "contacts/build/index.js")],
+    args: [resolve(APPLE_MCP_DIR, "contacts/build/index.js"), "--confirm-destructive"],
   },
   "apple-reminders": {
     command: "node",
-    args: [resolve(APPLE_MCP_DIR, "reminders/build/index.js")],
+    args: [resolve(APPLE_MCP_DIR, "reminders/build/index.js"), "--confirm-destructive"],
   },
   "apple-calendar": {
     command: "node",
-    args: [resolve(APPLE_MCP_DIR, "calendar/build/index.js")],
+    args: [resolve(APPLE_MCP_DIR, "calendar/build/index.js"), "--confirm-destructive"],
   },
   "apple-maps": {
     command: "node",
@@ -82,7 +82,8 @@ Today's date: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "
 IMPORTANT rules:
 - When querying calendar events by date range, use list_all_events to get events from all calendars in one call. Only use search_events when searching by event name/title.
 - When you need to message ${USER_NAME}, use phone number ${USER_PHONE} (not email).
-- Keep responses concise — this is a chat message, not an essay. No emojis.`;
+- Keep responses concise — this is a chat message, not an essay. No emojis. Do not use markdown formatting (no **, no ##, no backticks). Use plain text only.
+- DESTRUCTIVE ACTION CONFIRMATION: Delete tools (delete_note, delete_contact, delete_reminder, delete_event) require a "confirm" parameter. When a tool returns a confirmation warning, you MUST stop and ask ${USER_NAME} for permission. Do NOT call the tool again with confirm: true until ${USER_NAME} explicitly agrees in their next message.`;
 
 let offset = 0;
 let processing = false;
